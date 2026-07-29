@@ -58,7 +58,7 @@ def get_agent() -> AIAgent:
     global _agent
     if _agent is None:
         config = AgentConfig(
-            model="gpt-4o-mini",
+            model="openai/gpt-4o-mini",
             temperature=0.7,
             max_tokens=4096,
             use_cot=True,
