@@ -16,7 +16,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 import json
 import asyncio
 from typing import Optional
-from fastapi import FastAPI, Request, Form
+from fastapi import FastAPI, Form
 from fastapi.responses import StreamingResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
@@ -24,6 +24,16 @@ from pydantic import BaseModel
 
 from agent.agent_core import AIAgent, AgentConfig
 from agent.context_loader import get_context_loader
+
+# Проверка API ключа при старте
+_API_KEY = os.environ.get("OPENAI_API_KEY")
+if not _API_KEY:
+    print("=" * 60)
+    print("  WARNING: OPENAI_API_KEY not set!")
+    print("  The agent will NOT be able to answer requests.")
+    print("  Set the environment variable:")
+    print('    export OPENAI_API_KEY="sk-your-key-here"')
+    print("=" * 60)
 
 app = FastAPI(
     title="AI Agent API",
@@ -69,13 +79,13 @@ class ChatRequest(BaseModel):
 # ─── SSE Streaming Endpoint ───
 
 @app.post("/chat/stream")
-async def chat_stream(message: str = Form(...), use_cot: bool = Form(True)):
+async def chat_stream(message: str = Form(...), use_cot: str = Form("true")):
     """
     Основной эндпоинт для потокового чата.
     Возвращает Server-Sent Events (SSE).
     """
     agent = get_agent()
-    agent.config.use_cot = use_cot
+    agent.config.use_cot = use_cot.lower() in ("true", "1", "yes")
 
     async def event_generator():
         try:
@@ -175,8 +185,8 @@ async def health():
 @app.get("/", response_class=HTMLResponse)
 async def web_ui():
     """Веб-интерфейс для тестирования агента."""
-    return """
-<!DOCTYPE html>
+    return HTMLResponse(
+        content="""<!DOCTYPE html>
 <html lang="ru">
 <head>
     <meta charset="UTF-8">
@@ -381,7 +391,6 @@ async def web_ui():
                 type="text"
                 id="messageInput"
                 placeholder="Введите ваш вопрос..."
-                onkeypress="if(event.key==='Enter') sendMessage()"
             />
             <button id="sendButton" onclick="sendMessage()">▶ Отправить</button>
         </div>
@@ -393,6 +402,10 @@ async def web_ui():
         const sendButton = document.getElementById('sendButton');
         const typingIndicator = document.getElementById('typingIndicator');
         const useCOT = document.getElementById('useCOT');
+
+        messageInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') sendMessage();
+        });
 
         function addMessage(role, content) {
             const div = document.createElement('div');
@@ -420,25 +433,30 @@ async def web_ui():
         }
 
         async function sendMessage() {
-            const message = messageInput.value.trim();
-            if (!message) return;
-
-            // Disable input
-            messageInput.disabled = true;
-            sendButton.disabled = true;
-
-            // Show user message
-            addMessage('user', escapeHtml(message));
-            messageInput.value = '';
-
-            // Show typing indicator
-            typingIndicator.classList.add('active');
-
-            // Create agent message container
-            const agentMsg = addMessage('agent', '');
-            const bubble = agentMsg.querySelector('.bubble');
-
             try {
+                const message = messageInput.value.trim();
+                if (!message) return;
+
+                if (!messageInput || !sendButton || !chatArea || !typingIndicator) {
+                    console.error('UI elements not found');
+                    return;
+                }
+
+                // Disable input
+                messageInput.disabled = true;
+                sendButton.disabled = true;
+
+                // Show user message
+                addMessage('user', escapeHtml(message));
+                messageInput.value = '';
+
+                // Show typing indicator
+                typingIndicator.classList.add('active');
+
+                // Create agent message container
+                const agentMsg = addMessage('agent', '');
+                const bubble = agentMsg.querySelector('.bubble');
+
                 const formData = new FormData();
                 formData.append('message', message);
                 formData.append('use_cot', useCOT.checked);
@@ -447,6 +465,17 @@ async def web_ui():
                     method: 'POST',
                     body: formData,
                 });
+
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    let errorMsg = errorText;
+                    try {
+                        const errorJson = JSON.parse(errorText);
+                        errorMsg = errorJson.detail || JSON.stringify(errorJson);
+                    } catch (_) {}
+                    bubble.textContent = `❌ Ошибка сервера (${response.status}): ${errorMsg}`;
+                    return;
+                }
 
                 const reader = response.body.getReader();
                 const decoder = new TextDecoder();
@@ -481,12 +510,18 @@ async def web_ui():
                                 bubble.textContent += `\n❌ Ошибка: ${event.content}`;
                             }
                         } catch (e) {
-                            console.error('Parse error:', e);
+                            bubble.textContent += `\n⚠️ Ошибка обработки данных: ${e.message}`;
                         }
                     }
                 }
             } catch (error) {
-                bubble.textContent = `❌ Ошибка соединения: ${error.message}`;
+                const errorMsg = `❌ Ошибка: ${error.message}`;
+                const existingBubble = document.querySelector('.message.agent:last-child .bubble');
+                if (existingBubble) {
+                    existingBubble.textContent = errorMsg;
+                } else {
+                    addMessage('agent', errorMsg);
+                }
             } finally {
                 typingIndicator.classList.remove('active');
                 messageInput.disabled = false;
@@ -517,8 +552,9 @@ async def web_ui():
         }
     </script>
 </body>
-</html>
-"""
+</html>""",
+        headers={"Cache-Control": "no-store, max-age=0"},
+    )
 
 
 # ─── Entry Point ───
