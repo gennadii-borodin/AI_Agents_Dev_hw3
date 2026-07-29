@@ -89,19 +89,24 @@ venv\Scripts\activate     # Windows
 pip install -r requirements.txt
 ```
 
-### 2. Настройка API ключа
+### 2. Настройка переменных окружения
 
 ```bash
 export OPENAI_API_KEY="sk-your-key-here"   # Linux/Mac
+export OPENAI_BASE_URL="https://api.openai.com/v1"  # опционально, для кастомного endpoint
 ```
 
 ```cmd
 set OPENAI_API_KEY=sk-your-key-here        # Windows cmd
+set OPENAI_BASE_URL=https://api.openai.com/v1
 ```
 
 ```powershell
 $env:OPENAI_API_KEY="sk-your-key-here"     # Windows PowerShell
+$env:OPENAI_BASE_URL="https://api.openai.com/v1"
 ```
+
+> `OPENAI_BASE_URL` — опционально. По умолчанию `https://api.openai.com/v1`. Позволяет направлять запросы через прокси или кастомный gateway.
 
 ### 3. Запуск сервера
 
@@ -274,6 +279,7 @@ agent = AIAgent(config)
 
 - **`OPENAI_API_KEY` не установлен** — задайте переменную окружения (см. Быстрый старт)
 - **Неверный API ключ** — проверьте правильность ключа в OpenAI Dashboard
+- **`OPENAI_BASE_URL` указан неверно** — если используете кастомный endpoint, убедитесь что URL корректен
 - **Нет интернета** — агент требует подключения к облачной LLM
 
 ### Агент отвечает не на русском
@@ -291,6 +297,7 @@ agent = AIAgent(config)
 
 - Python 3.10+
 - OpenAI API Key (переменная окружения `OPENAI_API_KEY`)
+- `OPENAI_BASE_URL` — опционально (по умолчанию `https://api.openai.com/v1`)
 - Интернет-соединение (облачная LLM)
 
 ---

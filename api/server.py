@@ -84,11 +84,11 @@ async def chat_stream(message: str = Form(...), use_cot: str = Form("true")):
     Основной эндпоинт для потокового чата.
     Возвращает Server-Sent Events (SSE).
     """
-    agent = get_agent()
-    agent.config.use_cot = use_cot.lower() in ("true", "1", "yes")
-
     async def event_generator():
         try:
+            agent = get_agent()
+            agent.config.use_cot = use_cot.lower() in ("true", "1", "yes")
+
             async for event in agent.stream_response(message):
                 event_type = event["type"]
                 data = event["data"]
@@ -126,18 +126,24 @@ async def chat_stream(message: str = Form(...), use_cot: str = Form("true")):
 @app.post("/chat")
 async def chat(request: ChatRequest):
     """Не-потоковый эндпоинт (возвращает полный JSON)."""
-    agent = get_agent()
-    agent.config.use_cot = request.use_cot
-    agent.config.model = request.model
-    agent.config.temperature = request.temperature
+    try:
+        agent = get_agent()
+        agent.config.use_cot = request.use_cot
+        agent.config.model = request.model
+        agent.config.temperature = request.temperature
 
-    response = await agent.run_non_streaming(request.message)
-    return JSONResponse(content={
-        "response": response.content,
-        "context_used": response.context_used,
-        "model": response.model,
-        "usage": response.usage,
-    })
+        response = await agent.run_non_streaming(request.message)
+        return JSONResponse(content={
+            "response": response.content,
+            "context_used": response.context_used,
+            "model": response.model,
+            "usage": response.usage,
+        })
+    except Exception as e:
+        return JSONResponse(
+            status_code=500,
+            content={"error": str(e)}
+        )
 
 
 # ─── Context Management ───

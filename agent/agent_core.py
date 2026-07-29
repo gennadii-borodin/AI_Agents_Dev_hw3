@@ -54,7 +54,7 @@ class AIAgent:
     def __init__(self, config: Optional[AgentConfig] = None):
         self.config = config or AgentConfig()
         self.context_loader = get_context_loader()
-        self.client = AsyncOpenAI(base_url=os.environ.get("OPENAI_BASE_URL"), api_key=os.environ.get("OPENAI_API_KEY"))
+        self._client: Optional[AsyncOpenAI] = None
 
         # Загружаем системный промпт из контекста
         if not self.config.system_prompt:
@@ -62,6 +62,12 @@ class AIAgent:
                 "knowledge_base.prompts.system_prompt",
                 "Ты — полезный ИИ-агент."
             )
+
+    @property
+    def client(self) -> AsyncOpenAI:
+        if self._client is None:
+            self._client = AsyncOpenAI(base_url=os.environ.get("OPENAI_BASE_URL"), api_key=os.environ.get("OPENAI_API_KEY"))
+        return self._client
 
     def _build_cot_prompt(self, query: str, context: str) -> list[dict]:
         """
@@ -167,34 +173,39 @@ class AIAgent:
 
     async def run_non_streaming(self, query: str) -> AgentResponse:
         """Не-потоковый режим (для отладки)."""
-        relevant_context = self.context_loader.get_relevant_context(query)
-        system_context = self.context_loader.get_system_context()
-        full_context = f"{system_context}\n\n--- Релевантный контекст ---\n{relevant_context}"
+        try:
+            relevant_context = self.context_loader.get_relevant_context(query)
+            system_context = self.context_loader.get_system_context()
+            full_context = f"{system_context}\n\n--- Релевантный контекст ---\n{relevant_context}"
 
-        if self.config.use_cot:
-            messages = self._build_cot_prompt(query, full_context)
-        else:
-            messages = self._build_standard_prompt(query, full_context)
+            if self.config.use_cot:
+                messages = self._build_cot_prompt(query, full_context)
+            else:
+                messages = self._build_standard_prompt(query, full_context)
 
-        response = await self.client.chat.completions.create(
-            model=self.config.model,
-            messages=messages,
-            temperature=self.config.temperature,
-            max_tokens=self.config.max_tokens,
-            stream=False,
-        )
+            response = await self.client.chat.completions.create(
+                model=self.config.model,
+                messages=messages,
+                temperature=self.config.temperature,
+                max_tokens=self.config.max_tokens,
+                stream=False,
+            )
 
-        content = response.choices[0].message.content
-        return AgentResponse(
-            content=content,
-            context_used=[relevant_context],
-            model=self.config.model,
-            usage={
-                "prompt_tokens": response.usage.prompt_tokens if response.usage else 0,
-                "completion_tokens": response.usage.completion_tokens if response.usage else 0,
-                "total_tokens": response.usage.total_tokens if response.usage else 0,
-            }
-        )
+            content = response.choices[0].message.content
+            return AgentResponse(
+                content=content,
+                context_used=[relevant_context],
+                model=self.config.model,
+                usage={
+                    "prompt_tokens": response.usage.prompt_tokens if response.usage else 0,
+                    "completion_tokens": response.usage.completion_tokens if response.usage else 0,
+                    "total_tokens": response.usage.total_tokens if response.usage else 0,
+                }
+            )
+        except openai.APIError as e:
+            return AgentResponse(content=f"OpenAI API Error: {str(e)}")
+        except Exception as e:
+            return AgentResponse(content=f"Unexpected error: {str(e)}")
 
 
 # Утилита для парсинга CoT-шагов из ответа
