@@ -486,7 +486,7 @@ async def web_ui():
                     if (done) break;
 
                     buffer += decoder.decode(value, { stream: true });
-                    const lines = buffer.split('\n\n');
+                    const lines = buffer.split('\\n\\n');
                     buffer = lines.pop() || '';
 
                     for (const line of lines) {
